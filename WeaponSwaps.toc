@@ -2,7 +2,7 @@
 ## Title: Weapon Swaps
 ## Notes: Reliable weapon swapping with native equipment sets.
 ## Author: rootkow
-## Version: 1.0.0
+## Version: 1.1.0
 ## SavedVariables: WeaponSwapsDB
 
 WeaponSwaps.lua

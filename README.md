@@ -9,7 +9,8 @@ Because it uses Blizzard's native `C_EquipmentSet` system, the resulting sets al
 - Creates weapon-only sets from your currently equipped main-hand and off-hand items.
 - Uses the TBC Anniversary-specific two-step create/save flow needed to persist ignored armor slots reliably.
 - Updates or deletes weapon-only sets without touching full-gear equipment sets.
-- Provides secure set buttons that work in combat.
+- Provides clearly labeled secure **Equip** buttons that work in combat when the manager is already open.
+- Creates character-specific macros that toggle between two selected weapon sets.
 - Recognizes weapon-only sets created manually or by another addon.
 - Handles duplicate-name weapons through native equipment-set item tracking.
 
@@ -27,7 +28,7 @@ The addon targets TBC Anniversary interface version `20505`.
 2. Open the manager with `/ws`.
 3. Enter a set name and click **Create set**.
 4. Wait for the `Created and verified weapon set` chat message. Native creation takes about two seconds because the addon verifies that the weapon-only mask persists.
-5. Use the set's large button to equip it. Use **Save** after changing weapons to overwrite that set.
+5. Use the set's **Equip** button to equip it. Use **Save** after changing weapons to overwrite that set.
 
 Creating, saving, deleting, opening, and closing the manager is disabled during combat. If the manager was already open, its set buttons remain usable. A normal `/equipset` action-bar macro remains the most convenient way to swap at any time.
 
@@ -40,14 +41,22 @@ Weapon Swaps deliberately hides normal full-gear equipment sets. It never conver
 - `/ws list` — print weapon-only set names.
 - `/ws help` — print command help.
 
-### Toggle macro
+### Toggle macro builder
 
-Native set names can be used directly in macros. For example, with sets named `DW` and `2H`:
+The bottom of the manager has two set selectors:
+
+- **If wearing 2H, equip** — the set to equip while a two-handed weapon is currently worn.
+- **Otherwise equip** — the set to equip in every other case.
+
+Select two different sets and click **Create macro**. Weapon Swaps creates a character-specific macro without overwriting an unrelated macro with the same name. Creating the same toggle again does not create a duplicate.
+
+For example, selecting `DW` first and `2H` second produces:
 
 ```text
-#showtooltip
 /equipset [worn:two-hand] DW; 2H
 ```
+
+Open the game's macro window with `/macro` to drag the generated macro to an action bar.
 
 ## Why creation happens in two steps
 

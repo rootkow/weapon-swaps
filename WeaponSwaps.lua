@@ -364,8 +364,86 @@ function addon:DeleteWeaponSet(setID)
     self:RefreshUI()
 end
 
+local function IsMacroSafeSetName(name)
+    return name
+        and name ~= ""
+        and not string.find(name, "[;\r\n]")
+        and string.sub(name, 1, 1) ~= "["
+end
+
+local function MakeMacroName(firstName, secondName, suffix)
+    local suffixText = suffix and tostring(suffix) or ""
+    local available = 16 - #suffixText
+    local base = "WS " .. firstName .. "-" .. secondName
+    return string.sub(base, 1, available) .. suffixText
+end
+
+function addon:CreateToggleMacro(firstSetID, secondSetID)
+    if IsInCombat() then
+        Print("Macros cannot be created during combat.")
+        return false
+    end
+
+    if not CreateMacro or not GetMacroIndexByName or not GetMacroInfo then
+        Print("The macro API is not available on this client.")
+        return false
+    end
+
+    local firstSet = GetSetInfo(firstSetID)
+    local secondSet = GetSetInfo(secondSetID)
+    if not firstSet or not secondSet or not IsWeaponOnlySet(firstSetID) or not IsWeaponOnlySet(secondSetID) then
+        Print("Choose two existing weapon-only equipment sets.")
+        return false
+    end
+
+    if firstSetID == secondSetID then
+        Print("Choose two different equipment sets for the toggle.")
+        return false
+    end
+
+    if not IsMacroSafeSetName(firstSet.name) or not IsMacroSafeSetName(secondSet.name) then
+        Print("Set names used in a toggle cannot start with '[' or contain semicolons or line breaks.")
+        return false
+    end
+
+    local body = string.format("/equipset [worn:two-hand] %s; %s", firstSet.name, secondSet.name)
+    local macroName = MakeMacroName(firstSet.name, secondSet.name)
+    local existingIndex = GetMacroIndexByName(macroName)
+
+    if existingIndex and existingIndex > 0 then
+        local _, _, existingBody = GetMacroInfo(existingIndex)
+        if existingBody == body then
+            Print(string.format("The character macro |cffffffff%s|r already exists.", macroName))
+            return true
+        end
+
+        local foundAvailableName = false
+        for suffix = 2, 99 do
+            local candidate = MakeMacroName(firstSet.name, secondSet.name, suffix)
+            if GetMacroIndexByName(candidate) == 0 then
+                macroName = candidate
+                foundAvailableName = true
+                break
+            end
+        end
+        if not foundAvailableName then
+            Print("Unable to find an available macro name for this toggle.")
+            return false
+        end
+    end
+
+    local ok, macroIndex = pcall(CreateMacro, macroName, DEFAULT_ICON, body, true)
+    if not ok or not macroIndex then
+        Print("Unable to create the character macro. Check whether the character macro list is full.")
+        return false
+    end
+
+    Print(string.format("Created character macro |cffffffff%s|r: %s", macroName, body))
+    return true
+end
+
 local frame = CreateFrame("Frame", "WeaponSwapsFrame", UIParent, "BackdropTemplate")
-frame:SetSize(390, 430)
+frame:SetSize(500, 500)
 frame:SetPoint("CENTER")
 frame:SetFrameStrata("DIALOG")
 frame:SetClampedToScreen(true)
@@ -417,38 +495,38 @@ addon.status = status
 
 local scroll = CreateFrame("ScrollFrame", "WeaponSwapsScrollFrame", frame, "UIPanelScrollFrameTemplate")
 scroll:SetPoint("TOPLEFT", 18, -108)
-scroll:SetPoint("BOTTOMRIGHT", -36, 85)
+scroll:SetPoint("BOTTOMRIGHT", -36, 170)
 
 local scrollChild = CreateFrame("Frame", nil, scroll)
-scrollChild:SetSize(330, 1)
+scrollChild:SetSize(440, 1)
 scroll:SetScrollChild(scrollChild)
 addon.scrollChild = scrollChild
 
 local rows = {}
 local function CreateSetRow(index)
     local row = CreateFrame("Frame", nil, scrollChild, "BackdropTemplate")
-    row:SetSize(328, 45)
+    row:SetSize(438, 45)
     row:SetPoint("TOPLEFT", 0, -((index - 1) * 48))
     row:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8" })
     row:SetBackdropColor(0.08, 0.08, 0.08, 0.65)
 
-    local equipButton = CreateFrame("Button", "WeaponSwapsEquipButton" .. index, row, "SecureActionButtonTemplate")
-    equipButton:SetSize(202, 41)
-    equipButton:SetPoint("LEFT", 2, 0)
-    equipButton:RegisterForClicks("AnyUp")
-    equipButton:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
-    row.equipButton = equipButton
-
-    local icon = equipButton:CreateTexture(nil, "ARTWORK")
+    local icon = row:CreateTexture(nil, "ARTWORK")
     icon:SetSize(34, 34)
-    icon:SetPoint("LEFT", 4, 0)
-    equipButton.icon = icon
+    icon:SetPoint("LEFT", 6, 0)
+    row.icon = icon
 
-    local name = equipButton:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    local name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     name:SetPoint("LEFT", icon, "RIGHT", 9, 0)
-    name:SetPoint("RIGHT", -4, 0)
+    name:SetPoint("RIGHT", -186, 0)
     name:SetJustifyH("LEFT")
-    equipButton.name = name
+    row.name = name
+
+    local equipButton = CreateFrame("Button", "WeaponSwapsEquipButton" .. index, row, "UIPanelButtonTemplate,SecureActionButtonTemplate")
+    equipButton:SetSize(68, 24)
+    equipButton:SetPoint("RIGHT", -111, 0)
+    equipButton:RegisterForClicks("AnyUp")
+    equipButton:SetText("Equip")
+    row.equipButton = equipButton
 
     equipButton:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -459,7 +537,7 @@ local function CreateSetRow(index)
     equipButton:SetScript("OnLeave", GameTooltip_Hide)
 
     local saveButton = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
-    saveButton:SetSize(78, 24)
+    saveButton:SetSize(68, 24)
     saveButton:SetPoint("RIGHT", -39, 0)
     saveButton:SetText("Save")
     saveButton:SetScript("OnClick", function(self)
@@ -509,7 +587,7 @@ StaticPopupDialogs.WEAPONSWAPS_CONFIRM_DELETE = {
 
 local nameBox = CreateFrame("EditBox", "WeaponSwapsNameBox", frame, "InputBoxTemplate")
 nameBox:SetSize(235, 24)
-nameBox:SetPoint("BOTTOMLEFT", 25, 36)
+nameBox:SetPoint("BOTTOMLEFT", 25, 121)
 nameBox:SetAutoFocus(false)
 nameBox:SetMaxLetters(31)
 nameBox:SetTextInsets(5, 5, 0, 0)
@@ -536,6 +614,71 @@ local nameHint = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
 nameHint:SetPoint("BOTTOMLEFT", nameBox, "TOPLEFT", 0, 2)
 nameHint:SetText("New set name")
 
+local macroHeader = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+macroHeader:SetPoint("BOTTOMLEFT", 22, 85)
+macroHeader:SetText("Create a two-set toggle macro")
+
+local firstMacroLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+firstMacroLabel:SetPoint("BOTTOMLEFT", 28, 62)
+firstMacroLabel:SetText("If wearing 2H, equip:")
+
+local secondMacroLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+secondMacroLabel:SetPoint("BOTTOMLEFT", 190, 62)
+secondMacroLabel:SetText("Otherwise equip:")
+
+local firstDropdown = CreateFrame("Frame", "WeaponSwapsFirstSetDropdown", frame, "UIDropDownMenuTemplate")
+firstDropdown:SetPoint("BOTTOMLEFT", 8, 22)
+UIDropDownMenu_SetWidth(firstDropdown, 128)
+
+local secondDropdown = CreateFrame("Frame", "WeaponSwapsSecondSetDropdown", frame, "UIDropDownMenuTemplate")
+secondDropdown:SetPoint("BOTTOMLEFT", 170, 22)
+UIDropDownMenu_SetWidth(secondDropdown, 128)
+
+local createMacroButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+createMacroButton:SetSize(128, 24)
+createMacroButton:SetPoint("BOTTOMRIGHT", -24, 32)
+createMacroButton:SetText("Create macro")
+createMacroButton:SetScript("OnClick", function()
+    addon:CreateToggleMacro(addon.firstMacroSetID, addon.secondMacroSetID)
+end)
+
+local function SelectMacroSet(which, setID, setName)
+    if which == "first" then
+        addon.firstMacroSetID = setID
+        UIDropDownMenu_SetText(firstDropdown, setName)
+    else
+        addon.secondMacroSetID = setID
+        UIDropDownMenu_SetText(secondDropdown, setName)
+    end
+    local canCreate = addon.firstMacroSetID ~= nil
+        and addon.secondMacroSetID ~= nil
+        and addon.firstMacroSetID ~= addon.secondMacroSetID
+        and not addon.pendingCreate
+    createMacroButton:SetEnabled(canCreate)
+end
+
+local function InitializeSetDropdown(_, level, which)
+    for _, set in ipairs(addon:GetWeaponSets()) do
+        local setID = set.id
+        local setName = set.name
+        local info = UIDropDownMenu_CreateInfo()
+        info.text = setName
+        info.checked = (which == "first" and addon.firstMacroSetID == setID)
+            or (which == "second" and addon.secondMacroSetID == setID)
+        info.func = function()
+            SelectMacroSet(which, setID, setName)
+        end
+        UIDropDownMenu_AddButton(info, level)
+    end
+end
+
+UIDropDownMenu_Initialize(firstDropdown, function(self, level)
+    InitializeSetDropdown(self, level, "first")
+end)
+UIDropDownMenu_Initialize(secondDropdown, function(self, level)
+    InitializeSetDropdown(self, level, "second")
+end)
+
 function addon:RefreshUI()
     if not self.frame then
         return
@@ -557,8 +700,8 @@ function addon:RefreshUI()
         row:Show()
 
         row.equipButton.setName = set.name
-        row.equipButton.icon:SetTexture(set.icon)
-        row.equipButton.name:SetText(set.isEquipped and ("|cff33ff99" .. set.name .. "|r") or set.name)
+        row.icon:SetTexture(set.icon)
+        row.name:SetText(set.isEquipped and ("|cff33ff99" .. set.name .. "|r") or set.name)
         row.saveButton.setID = set.id
         row.deleteButton.setID = set.id
         row.deleteButton.setName = set.name
@@ -585,6 +728,55 @@ function addon:RefreshUI()
     status:SetText(summary)
     createButton:SetEnabled(not self.pendingCreate)
     nameBox:SetEnabled(not self.pendingCreate)
+
+    local function FindSelectedSet(selectedID)
+        for _, set in ipairs(sets) do
+            if set.id == selectedID then
+                return set
+            end
+        end
+    end
+
+    local firstSet = FindSelectedSet(self.firstMacroSetID)
+    local secondSet = FindSelectedSet(self.secondMacroSetID)
+    if not firstSet then
+        for _, set in ipairs(sets) do
+            if string.lower(set.name) == "dw" and (not secondSet or set.id ~= secondSet.id) then
+                firstSet = set
+                break
+            end
+        end
+        for _, set in ipairs(sets) do
+            if not firstSet and (not secondSet or set.id ~= secondSet.id) then
+                firstSet = set
+                break
+            end
+        end
+        self.firstMacroSetID = firstSet and firstSet.id
+    end
+    if not secondSet then
+        for _, set in ipairs(sets) do
+            if string.lower(set.name) == "2h" and (not firstSet or set.id ~= firstSet.id) then
+                secondSet = set
+                break
+            end
+        end
+        for _, set in ipairs(sets) do
+            if not secondSet and (not firstSet or set.id ~= firstSet.id) then
+                secondSet = set
+                break
+            end
+        end
+        self.secondMacroSetID = secondSet and secondSet.id
+    end
+
+    UIDropDownMenu_SetText(firstDropdown, firstSet and firstSet.name or "Choose a set")
+    UIDropDownMenu_SetText(secondDropdown, secondSet and secondSet.name or "Choose a set")
+    local canCreateMacro = firstSet ~= nil
+        and secondSet ~= nil
+        and firstSet.id ~= secondSet.id
+        and not self.pendingCreate
+    createMacroButton:SetEnabled(canCreateMacro)
 end
 
 function addon:ToggleUI()

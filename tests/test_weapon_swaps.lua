@@ -6,6 +6,7 @@ local sets = {}
 local nextSetID = 0
 local saveCounts = {}
 local overwriteOnceID
+local macros = {}
 
 local function Noop()
 end
@@ -58,6 +59,11 @@ StaticPopupDialogs = {}
 StaticPopup_Show = Noop
 SlashCmdList = {}
 UISpecialFrames = {}
+UIDropDownMenu_SetWidth = Noop
+UIDropDownMenu_SetText = function(dropdown, text) dropdown.dropdownText = text end
+UIDropDownMenu_Initialize = function(dropdown, initializer) dropdown.initializer = initializer end
+UIDropDownMenu_CreateInfo = function() return {} end
+UIDropDownMenu_AddButton = Noop
 DELETE = "Delete"
 CANCEL = "Cancel"
 WeaponSwapsDB = {}
@@ -67,6 +73,29 @@ strtrim = function(value)
 end
 GetInventoryItemTexture = function() return 987654 end
 InCombatLockdown = function() return inCombat end
+GetMacroIndexByName = function(name)
+    for index, macro in ipairs(macros) do
+        if macro.name == name then
+            return index
+        end
+    end
+    return 0
+end
+GetMacroInfo = function(index)
+    local macro = macros[index]
+    if macro then
+        return macro.name, macro.icon, macro.body
+    end
+end
+CreateMacro = function(name, icon, body, perCharacter)
+    macros[#macros + 1] = {
+        name = name,
+        icon = icon,
+        body = body,
+        perCharacter = perCharacter,
+    }
+    return #macros
+end
 
 C_Timer = {
     After = function(_, callback)
@@ -179,6 +208,23 @@ addon:FinishPendingCreate()
 RunUntilCreateFinishes()
 AssertWeaponOnly(sets[2])
 assert(saveCounts[2] == 2, "a late native overwrite should trigger a verified retry")
+assert(WeaponSwapsEquipButton1.text == "Equip")
+local equipMacros = {
+    [WeaponSwapsEquipButton1.attributes.macrotext] = true,
+    [WeaponSwapsEquipButton2.attributes.macrotext] = true,
+}
+assert(equipMacros["/equipset DW"] and equipMacros["/equipset 2H"])
+assert(WeaponSwapsFirstSetDropdown.dropdownText == "DW")
+assert(WeaponSwapsSecondSetDropdown.dropdownText == "2H")
+
+assert(addon:CreateToggleMacro(0, 2) == true)
+assert(#macros == 1)
+assert(macros[1].name == "WS DW-2H")
+assert(macros[1].body == "/equipset [worn:two-hand] DW; 2H")
+assert(macros[1].perCharacter == true)
+assert(addon:CreateToggleMacro(0, 2) == true, "creating the same toggle should be idempotent")
+assert(#macros == 1, "an identical macro should not be duplicated")
+assert(addon:CreateToggleMacro(0, 0) == false, "a toggle needs two different sets")
 
 addon:DeleteWeaponSet(0)
 assert(sets[0] == nil, "weapon set should be deleted")
