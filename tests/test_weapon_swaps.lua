@@ -7,6 +7,7 @@ local nextSetID = 0
 local saveCounts = {}
 local overwriteOnceID
 local macros = {}
+local equippedMainHandID = 100
 
 local function Noop()
 end
@@ -72,6 +73,13 @@ strtrim = function(value)
     return (value:gsub("^%s+", ""):gsub("%s+$", ""))
 end
 GetInventoryItemTexture = function() return 987654 end
+GetInventoryItemID = function() return equippedMainHandID end
+GetItemInfoInstant = function(itemID)
+    if itemID == 200 or itemID == 201 then
+        return itemID, "Weapon", "Two-Handed", "INVTYPE_2HWEAPON"
+    end
+    return itemID, "Weapon", "One-Handed", "INVTYPE_WEAPON"
+end
 InCombatLockdown = function() return inCombat end
 GetMacroIndexByName = function(name)
     for index, macro in ipairs(macros) do
@@ -122,6 +130,9 @@ C_EquipmentSet = {
     GetIgnoredSlots = function(id)
         return sets[id] and sets[id].ignored
     end,
+    GetItemIDs = function(id)
+        return sets[id] and sets[id].itemIDs
+    end,
     ClearIgnoredSlotsForSave = function()
         ignoredForSave = {}
     end,
@@ -129,7 +140,12 @@ C_EquipmentSet = {
         ignoredForSave[slot] = true
     end,
     CreateEquipmentSet = function(name, icon)
-        sets[nextSetID] = { name = name, icon = icon, ignored = {} }
+        sets[nextSetID] = {
+            name = name,
+            icon = icon,
+            ignored = {},
+            itemIDs = { [16] = equippedMainHandID },
+        }
         nextSetID = nextSetID + 1
     end,
     SaveEquipmentSet = function(id)
@@ -138,6 +154,7 @@ C_EquipmentSet = {
             snapshot[slot] = ignoredForSave[slot] or false
         end
         sets[id].ignored = snapshot
+        sets[id].itemIDs = { [16] = equippedMainHandID }
         saveCounts[id] = (saveCounts[id] or 0) + 1
         if overwriteOnceID == id and saveCounts[id] == 1 then
             scheduled[#scheduled + 1] = function()
@@ -191,12 +208,13 @@ assert(hiddenCount == 0)
 assert(addon:CreateWeaponSet("DW") == false, "duplicate set names should be rejected")
 assert(addon:CreateWeaponSet("dw") == false, "duplicate names should be case-insensitive")
 
-sets[1] = { name = "Raid Gear", icon = 1, ignored = {} }
+sets[1] = { name = "Raid Gear", icon = 1, ignored = {}, itemIDs = { [16] = 100 } }
 nextSetID = 2
 weaponSets, hiddenCount = addon:GetWeaponSets()
 assert(#weaponSets == 1, "full-gear sets should be hidden")
 assert(hiddenCount == 1, "full-gear sets should be counted")
 
+equippedMainHandID = 200
 assert(addon:CreateWeaponSet("2H") == true)
 overwriteOnceID = 2
 inCombat = true
@@ -224,7 +242,19 @@ assert(macros[1].body == "/equipset [worn:two-hand] DW; 2H")
 assert(macros[1].perCharacter == true)
 assert(addon:CreateToggleMacro(0, 2) == true, "creating the same toggle should be idempotent")
 assert(#macros == 1, "an identical macro should not be duplicated")
+assert(addon:CreateToggleMacro(2, 0) == true, "selector order should not affect the toggle")
+assert(#macros == 1, "reversing the selectors should not duplicate the macro")
 assert(addon:CreateToggleMacro(0, 0) == false, "a toggle needs two different sets")
+
+local weaponMask = {}
+for slot = 1, 19 do
+    weaponMask[slot] = slot ~= 16 and slot ~= 17
+end
+sets[3] = { name = "DW Alt", icon = 1, ignored = weaponMask, itemIDs = { [16] = 100 } }
+sets[4] = { name = "2H Alt", icon = 1, ignored = weaponMask, itemIDs = { [16] = 201 } }
+assert(addon:CreateToggleMacro(0, 3) == false, "two one-handed sets cannot auto-toggle")
+assert(addon:CreateToggleMacro(2, 4) == false, "two two-handed sets cannot auto-toggle")
+assert(#macros == 1, "same-shape sets should not create misleading macros")
 
 addon:DeleteWeaponSet(0)
 assert(sets[0] == nil, "weapon set should be deleted")

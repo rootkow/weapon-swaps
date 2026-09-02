@@ -43,12 +43,11 @@ Weapon Swaps deliberately hides normal full-gear equipment sets. It never conver
 
 ### Toggle macro builder
 
-The bottom of the manager has two set selectors:
+The bottom of the manager has selectors for the first and second set. Select two different sets and click **Create macro**. Weapon Swaps detects which set contains the two-handed weapon and puts the sets on the correct sides of the condition automatically.
 
-- **If wearing 2H, equip** — the set to equip while a two-handed weapon is currently worn.
-- **Otherwise equip** — the set to equip in every other case.
+An automatic toggle is created only when exactly one selected set is two-handed. Two one-handed sets or two two-handed sets have the same `[worn:two-hand]` state, so a macro cannot distinguish them; use their individual **Equip** buttons instead. If a manually created set's weapon type cannot be detected, equip it and click **Save** once to record its current weapon type.
 
-Select two different sets and click **Create macro**. Weapon Swaps creates a character-specific macro without overwriting an unrelated macro with the same name. Creating the same toggle again does not create a duplicate.
+Weapon Swaps creates a character-specific macro without overwriting an unrelated macro with the same name. Creating the same toggle again does not create a duplicate.
 
 For example, selecting `DW` first and `2H` second produces:
 
