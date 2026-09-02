@@ -128,7 +128,7 @@ function addon:CanManageSets()
     return true
 end
 
-function addon:ApplyWeaponOnlySave(setID)
+function addon:WriteWeaponOnlySet(setID)
     local api = GetAPI()
     if not api or not api.ClearIgnoredSlotsForSave or not api.IgnoreSlotForSave or not api.SaveEquipmentSet then
         Print("This client is missing part of the native equipment-set API.")
@@ -147,6 +147,14 @@ function addon:ApplyWeaponOnlySave(setID)
 
     if not ok then
         Print("Unable to save the weapon set: " .. tostring(errorMessage))
+        return false
+    end
+
+    return true
+end
+
+function addon:ApplyWeaponOnlySave(setID)
+    if not self:WriteWeaponOnlySet(setID) then
         return false
     end
 
@@ -175,6 +183,42 @@ function addon:SaveWeaponSet(setID)
     end
 end
 
+function addon:SchedulePendingCreate(delay)
+    local pending = self.pendingCreate
+    if not pending or pending.timerScheduled then
+        return
+    end
+
+    pending.timerScheduled = true
+    C_Timer.After(delay, function()
+        if addon.pendingCreate ~= pending then
+            return
+        end
+        pending.timerScheduled = nil
+        addon:FinishPendingCreate()
+    end)
+end
+
+function addon:FailPendingCreate(message)
+    local pending = self.pendingCreate
+    if not pending then
+        return
+    end
+
+    self.pendingCreate = nil
+    Print(message)
+
+    if pending.setID then
+        local api = GetAPI()
+        if api and api.DeleteEquipmentSet then
+            pcall(api.DeleteEquipmentSet, pending.setID)
+            Print("Removed the incomplete set so it cannot overwrite armor by mistake.")
+        end
+    end
+
+    self:RefreshUI()
+end
+
 function addon:FinishPendingCreate()
     local pending = self.pendingCreate
     if not pending then
@@ -189,33 +233,66 @@ function addon:FinishPendingCreate()
         return
     end
 
-    local set = self:FindSetByName(pending.name)
-    if set then
-        self.pendingCreate = nil
-        if self:ApplyWeaponOnlySave(set.id) then
-            Print(string.format("Created weapon set |cffffffff%s|r.", set.name))
-        else
-            local api = GetAPI()
-            if api and api.DeleteEquipmentSet then
-                pcall(api.DeleteEquipmentSet, set.id)
-                Print("Removed the incomplete set so it cannot overwrite armor by mistake.")
-            end
+    pending.waitingForCombat = nil
+
+    if pending.stage == "find" then
+        local set = self:FindSetByName(pending.name)
+        if set then
+            pending.setID = set.id
+            pending.stage = "settle"
+            -- Seeing the ID does not mean the asynchronous native create has
+            -- finished. Let it settle before applying the first weapon mask.
+            self:SchedulePendingCreate(0.50)
+            return
         end
-        self:RefreshUI()
+
+        pending.findAttempts = pending.findAttempts + 1
+        if pending.findAttempts >= 20 then
+            self:FailPendingCreate("The game did not finish creating the set. Check the native set limit and try again.")
+            return
+        end
+
+        self:SchedulePendingCreate(0.20)
         return
     end
 
-    pending.attempts = pending.attempts + 1
-    if pending.attempts >= 20 then
-        self.pendingCreate = nil
-        Print("The game did not finish creating the set. Try again after checking the native set limit.")
-        self:RefreshUI()
+    if pending.stage == "settle" then
+        pending.saveAttempts = pending.saveAttempts + 1
+        pending.stableChecks = 0
+        if not self:WriteWeaponOnlySet(pending.setID) then
+            self:FailPendingCreate("The weapon-only save failed.")
+            return
+        end
+
+        pending.stage = "verify"
+        self:SchedulePendingCreate(0.50)
         return
     end
 
-    C_Timer.After(0.15, function()
-        addon:FinishPendingCreate()
-    end)
+    if pending.stage == "verify" then
+        if IsWeaponOnlySet(pending.setID) then
+            pending.stableChecks = pending.stableChecks + 1
+            if pending.stableChecks >= 2 then
+                local set = GetSetInfo(pending.setID)
+                self.pendingCreate = nil
+                Print(string.format("Created and verified weapon set |cffffffff%s|r.", set and set.name or pending.name))
+                self:RefreshUI()
+            else
+                -- Require the saved mask to survive two delayed reads. This
+                -- catches the native create finishing late and overwriting it.
+                self:SchedulePendingCreate(0.50)
+            end
+            return
+        end
+
+        if pending.saveAttempts >= 3 then
+            self:FailPendingCreate("The game did not retain the weapon-only slot mask after three save attempts.")
+            return
+        end
+
+        pending.stage = "settle"
+        self:SchedulePendingCreate(0.50)
+    end
 end
 
 function addon:CreateWeaponSet(rawName)
@@ -247,7 +324,13 @@ function addon:CreateWeaponSet(rawName)
 
     local icon = GetInventoryItemTexture("player", MAIN_HAND_SLOT) or DEFAULT_ICON
     api.ClearIgnoredSlotsForSave()
-    self.pendingCreate = { name = name, attempts = 0 }
+    self.pendingCreate = {
+        name = name,
+        stage = "find",
+        findAttempts = 0,
+        saveAttempts = 0,
+        stableChecks = 0,
+    }
 
     local ok, errorMessage = pcall(api.CreateEquipmentSet, name, icon)
     if not ok then
@@ -257,10 +340,9 @@ function addon:CreateWeaponSet(rawName)
     end
 
     -- TBC Anniversary does not reliably persist ignored slots when they are set
-    -- before CreateEquipmentSet. Wait for creation, then configure and save it.
-    C_Timer.After(0.15, function()
-        addon:FinishPendingCreate()
-    end)
+    -- before CreateEquipmentSet. Wait for creation to settle, then save and
+    -- verify the mask on two later ticks.
+    self:SchedulePendingCreate(0.20)
     self:RefreshUI()
     return true
 end
@@ -540,7 +622,9 @@ eventFrame:SetScript("OnEvent", function(_, event, argument)
         addon:RefreshUI()
     elseif event == "EQUIPMENT_SETS_CHANGED" then
         if addon.pendingCreate then
-            addon:FinishPendingCreate()
+            -- The event can fire before the native create operation is fully
+            -- committed, so let the pending timer advance the state machine.
+            addon:SchedulePendingCreate(0.20)
         end
         addon:RefreshUI()
     elseif event == "PLAYER_EQUIPMENT_CHANGED" then

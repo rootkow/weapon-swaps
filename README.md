@@ -26,7 +26,8 @@ The addon targets TBC Anniversary interface version `20505`.
 1. Equip the desired main-hand and off-hand weapons.
 2. Open the manager with `/ws`.
 3. Enter a set name and click **Create set**.
-4. Use the set's large button to equip it. Use **Save** after changing weapons to overwrite that set.
+4. Wait for the `Created and verified weapon set` chat message. Native creation takes about two seconds because the addon verifies that the weapon-only mask persists.
+5. Use the set's large button to equip it. Use **Save** after changing weapons to overwrite that set.
 
 Creating, saving, deleting, opening, and closing the manager is disabled during combat. If the manager was already open, its set buttons remain usable. A normal `/equipset` action-bar macro remains the most convenient way to swap at any time.
 

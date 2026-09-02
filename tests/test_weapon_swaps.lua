@@ -4,6 +4,8 @@ local inCombat = false
 local ignoredForSave = {}
 local sets = {}
 local nextSetID = 0
+local saveCounts = {}
+local overwriteOnceID
 
 local function Noop()
 end
@@ -107,6 +109,12 @@ C_EquipmentSet = {
             snapshot[slot] = ignoredForSave[slot] or false
         end
         sets[id].ignored = snapshot
+        saveCounts[id] = (saveCounts[id] or 0) + 1
+        if overwriteOnceID == id and saveCounts[id] == 1 then
+            scheduled[#scheduled + 1] = function()
+                sets[id].ignored = {}
+            end
+        end
     end,
     DeleteEquipmentSet = function(id)
         sets[id] = nil
@@ -122,6 +130,15 @@ local function RunNextTimer()
     callback()
 end
 
+local function RunUntilCreateFinishes()
+    local attempts = 0
+    while addon.pendingCreate do
+        RunNextTimer()
+        attempts = attempts + 1
+        assert(attempts < 30, "pending creation did not finish")
+    end
+end
+
 local function AssertWeaponOnly(set)
     for slot = 1, 19 do
         if slot == 16 or slot == 17 then
@@ -134,8 +151,9 @@ end
 
 assert(addon:CreateWeaponSet("DW") == true)
 assert(sets[0].ignored[1] == nil, "create should happen before ignored slots are configured")
-RunNextTimer()
+RunUntilCreateFinishes()
 AssertWeaponOnly(sets[0])
+assert(saveCounts[0] == 1, "settled creation should need one save")
 assert(next(ignoredForSave) == nil, "temporary ignored-slot state should be cleared")
 
 local weaponSets, hiddenCount = addon:GetWeaponSets()
@@ -151,13 +169,16 @@ assert(#weaponSets == 1, "full-gear sets should be hidden")
 assert(hiddenCount == 1, "full-gear sets should be counted")
 
 assert(addon:CreateWeaponSet("2H") == true)
+overwriteOnceID = 2
 inCombat = true
 RunNextTimer()
 assert(addon.pendingCreate, "creation should remain pending if combat starts")
 assert(sets[2].ignored[1] == nil, "set should not be modified during combat")
 inCombat = false
 addon:FinishPendingCreate()
+RunUntilCreateFinishes()
 AssertWeaponOnly(sets[2])
+assert(saveCounts[2] == 2, "a late native overwrite should trigger a verified retry")
 
 addon:DeleteWeaponSet(0)
 assert(sets[0] == nil, "weapon set should be deleted")
