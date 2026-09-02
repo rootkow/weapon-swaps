@@ -291,6 +291,28 @@ function addon:SaveWeaponSet(setID)
     end
 end
 
+function addon:EquipWeaponSet(setID)
+    if IsInCombat() then
+        return false
+    end
+
+    local api = GetAPI()
+    local set = GetSetInfo(setID)
+    if not api or not api.UseEquipmentSet or not set or not IsWeaponOnlySet(setID) then
+        Print("Unable to find that weapon-only equipment set.")
+        return false
+    end
+
+    local ok, result = pcall(api.UseEquipmentSet, setID)
+    if not ok or result == false then
+        Print("Unable to equip the set: " .. tostring(ok and "the game rejected the request" or result))
+        return false
+    end
+
+    Print(string.format("Equipping weapon set |cffffffff%s|r.", set.name))
+    return true
+end
+
 function addon:SchedulePendingCreate(delay)
     local pending = self.pendingCreate
     if not pending or pending.timerScheduled then
@@ -654,6 +676,14 @@ local function CreateSetRow(index)
     equipButton:SetText("Equip")
     row.equipButton = equipButton
 
+    equipButton:SetScript("PostClick", function(self)
+        -- Secure macro execution is reserved for combat. The native API is a
+        -- more reliable and observable path for ordinary out-of-combat clicks.
+        if not IsInCombat() then
+            addon:EquipWeaponSet(self.setID)
+        end
+    end)
+
     equipButton:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:SetText(self.setName or "")
@@ -826,14 +856,15 @@ function addon:RefreshUI()
         row:Show()
 
         row.equipButton.setName = set.name
+        row.equipButton.setID = set.id
         row.icon:SetTexture(set.icon)
         row.name:SetText(set.isEquipped and ("|cff33ff99" .. set.name .. "|r") or set.name)
         row.saveButton.setID = set.id
         row.deleteButton.setID = set.id
         row.deleteButton.setName = set.name
 
-        row.equipButton:SetAttribute("type", "macro")
-        row.equipButton:SetAttribute("macrotext", "/equipset " .. set.name)
+        row.equipButton:SetAttribute("type1", "macro")
+        row.equipButton:SetAttribute("macrotext1", "/equipset [combat] " .. set.name)
 
         row.saveButton:SetEnabled(true)
         row.deleteButton:SetEnabled(true)

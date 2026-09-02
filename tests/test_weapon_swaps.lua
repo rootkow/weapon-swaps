@@ -8,6 +8,7 @@ local saveCounts = {}
 local overwriteOnceID
 local macros = {}
 local equippedMainHandID = 100
+local equippedSetID
 
 local function Noop()
 end
@@ -165,6 +166,10 @@ C_EquipmentSet = {
     DeleteEquipmentSet = function(id)
         sets[id] = nil
     end,
+    UseEquipmentSet = function(id)
+        equippedSetID = id
+        return true
+    end,
 }
 
 local addon = {}
@@ -228,10 +233,18 @@ AssertWeaponOnly(sets[2])
 assert(saveCounts[2] == 2, "a late native overwrite should trigger a verified retry")
 assert(WeaponSwapsEquipButton1.text == "Equip")
 local equipMacros = {
-    [WeaponSwapsEquipButton1.attributes.macrotext] = true,
-    [WeaponSwapsEquipButton2.attributes.macrotext] = true,
+    [WeaponSwapsEquipButton1.attributes.macrotext1] = true,
+    [WeaponSwapsEquipButton2.attributes.macrotext1] = true,
 }
-assert(equipMacros["/equipset DW"] and equipMacros["/equipset 2H"])
+assert(equipMacros["/equipset [combat] DW"] and equipMacros["/equipset [combat] 2H"])
+local dwButton = WeaponSwapsEquipButton1.setID == 0 and WeaponSwapsEquipButton1 or WeaponSwapsEquipButton2
+dwButton.scripts.PostClick(dwButton)
+assert(equippedSetID == 0, "out-of-combat Equip should use the selected native set ID")
+equippedSetID = nil
+inCombat = true
+dwButton.scripts.PostClick(dwButton)
+assert(equippedSetID == nil, "combat clicks should be left to the secure macro path")
+inCombat = false
 assert(WeaponSwapsFirstSetDropdown.dropdownText == "DW")
 assert(WeaponSwapsSecondSetDropdown.dropdownText == "2H")
 
