@@ -1,5 +1,9 @@
 # Weapon Swaps
 
+<p align="center">
+  <img src="assets/WeaponSwapLogo.png" alt="Weapon Swaps logo" width="420">
+</p>
+
 Weapon Swaps is a small addon for World of Warcraft: The Burning Crusade Classic Anniversary. It creates and manages **weapon-only native equipment sets**, including sets that contain two copies of an identically named weapon.
 
 Because it uses Blizzard's native `C_EquipmentSet` system, the resulting sets also work with the standard `/equipset` macro command. The addon's set buttons are secure macro buttons, so an already open manager can equip saved weapon sets during combat.
