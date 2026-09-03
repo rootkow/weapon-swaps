@@ -6,6 +6,7 @@ local OFF_HAND_SLOT = 17
 local FIRST_EQUIPMENT_SLOT = 1
 local LAST_EQUIPMENT_SLOT = 19
 local DEFAULT_ICON = 134400
+local CREATE_WEAPONS_CHANGED_MESSAGE = "Your equipped weapons changed before the new set finished saving. The incomplete set was removed; equip the intended weapons and try again."
 
 local function Print(message)
     DEFAULT_CHAT_FRAME:AddMessage(ADDON_PREFIX .. message)
@@ -318,6 +319,19 @@ local function CurrentWeaponTypes()
     return types
 end
 
+local function PendingCreateWeaponsChanged(pending)
+    if pending.weaponsChanged then
+        return true
+    end
+
+    if not pending.tracksWeaponItemIDs then
+        return false
+    end
+
+    return GetInventoryItemID("player", MAIN_HAND_SLOT) ~= pending.mainHandItemID
+        or GetInventoryItemID("player", OFF_HAND_SLOT) ~= pending.offHandItemID
+end
+
 local function IsMacroSafeSetName(name)
     return name
         and name ~= ""
@@ -528,6 +542,10 @@ function addon:FinishPendingCreate()
         local set = self:FindSetByName(pending.name)
         if set then
             pending.setID = set.id
+            if PendingCreateWeaponsChanged(pending) then
+                self:FailPendingCreate(CREATE_WEAPONS_CHANGED_MESSAGE)
+                return
+            end
             pending.stage = "settle"
             -- Seeing the ID does not mean the asynchronous native create has
             -- finished. Let it settle before applying the first weapon mask.
@@ -542,6 +560,11 @@ function addon:FinishPendingCreate()
         end
 
         self:SchedulePendingCreate(0.20)
+        return
+    end
+
+    if PendingCreateWeaponsChanged(pending) then
+        self:FailPendingCreate(CREATE_WEAPONS_CHANGED_MESSAGE)
         return
     end
 
@@ -630,6 +653,9 @@ function addon:CreateWeaponSet(rawName)
         findAttempts = 0,
         saveAttempts = 0,
         stableChecks = 0,
+        tracksWeaponItemIDs = GetInventoryItemID ~= nil,
+        mainHandItemID = GetInventoryItemID and GetInventoryItemID("player", MAIN_HAND_SLOT),
+        offHandItemID = GetInventoryItemID and GetInventoryItemID("player", OFF_HAND_SLOT),
         isTwoHanded = CurrentMainHandUsesTwoHands(),
         hasShield = CurrentOffHandIsShield(),
         itemTypes = CurrentWeaponTypes(),
@@ -810,29 +836,28 @@ function addon:CreateToggleMacro(firstSetID, secondSetID)
     end
 
     local body = string.format("/equipset [equipped:%s] %s; %s", condition, otherSet.name, conditionSet.name)
-    local macroName = MakeMacroName(otherSet.name, conditionSet.name)
-    local existingIndex = GetMacroIndexByName(macroName)
-
-    if existingIndex and existingIndex > 0 then
-        local _, _, existingBody = GetMacroInfo(existingIndex)
-        if existingBody == body then
-            Print(string.format("The character macro |cffffffff%s|r already exists.", macroName))
-            return true
+    local macroName
+    for attempt = 1, 99 do
+        local suffix
+        if attempt > 1 then
+            suffix = attempt
         end
-
-        local foundAvailableName = false
-        for suffix = 2, 99 do
-            local candidate = MakeMacroName(otherSet.name, conditionSet.name, suffix)
-            if GetMacroIndexByName(candidate) == 0 then
-                macroName = candidate
-                foundAvailableName = true
-                break
+        local candidate = MakeMacroName(otherSet.name, conditionSet.name, suffix)
+        local existingIndex = GetMacroIndexByName(candidate)
+        if existingIndex and existingIndex > 0 then
+            local _, _, existingBody = GetMacroInfo(existingIndex)
+            if existingBody == body then
+                Print(string.format("The character macro |cffffffff%s|r already exists.", candidate))
+                return true
             end
+        elseif not macroName then
+            macroName = candidate
         end
-        if not foundAvailableName then
-            Print("Unable to find an available macro name for this toggle.")
-            return false
-        end
+    end
+
+    if not macroName then
+        Print("Unable to find an available macro name for this toggle.")
+        return false
     end
 
     local ok, macroIndex = pcall(CreateMacro, macroName, DEFAULT_ICON, body, true)
@@ -1242,6 +1267,9 @@ eventFrame:SetScript("OnEvent", function(_, event, argument)
         end
         addon:RefreshUI()
     elseif event == "PLAYER_EQUIPMENT_CHANGED" then
+        if addon.pendingCreate and (argument == MAIN_HAND_SLOT or argument == OFF_HAND_SLOT) then
+            addon.pendingCreate.weaponsChanged = true
+        end
         addon:RefreshUI()
     elseif event == "PLAYER_REGEN_ENABLED" then
         if addon.pendingCreate then
