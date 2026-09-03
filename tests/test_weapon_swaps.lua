@@ -8,6 +8,7 @@ local saveCounts = {}
 local overwriteOnceID
 local macros = {}
 local equippedMainHandID = 100
+local equippedOffHandID = 101
 local equippedSetID
 
 local function Noop()
@@ -74,12 +75,21 @@ strtrim = function(value)
     return (value:gsub("^%s+", ""):gsub("%s+$", ""))
 end
 GetInventoryItemTexture = function() return 987654 end
-GetInventoryItemID = function() return equippedMainHandID end
+GetInventoryItemID = function(_, slot)
+    if slot == 16 then
+        return equippedMainHandID
+    end
+    return equippedOffHandID
+end
 GetItemInfoInstant = function(itemID)
     if itemID == 200 or itemID == 201 then
-        return itemID, "Weapon", "Two-Handed", "INVTYPE_2HWEAPON"
+        return itemID, "Weapon", "Two-Handed Axes", "INVTYPE_2HWEAPON"
+    elseif itemID == 300 then
+        return itemID, "Armor", "Shields", "INVTYPE_SHIELD"
+    elseif itemID == 110 or itemID == 111 then
+        return itemID, "Weapon", "One-Handed Maces", "INVTYPE_WEAPON"
     end
-    return itemID, "Weapon", "One-Handed", "INVTYPE_WEAPON"
+    return itemID, "Weapon", "One-Handed Axes", "INVTYPE_WEAPON"
 end
 InCombatLockdown = function() return inCombat end
 GetMacroIndexByName = function(name)
@@ -145,7 +155,10 @@ C_EquipmentSet = {
             name = name,
             icon = icon,
             ignored = {},
-            itemIDs = { [16] = equippedMainHandID },
+            itemIDs = {
+                [16] = equippedMainHandID,
+                [17] = equippedOffHandID or 0,
+            },
         }
         nextSetID = nextSetID + 1
     end,
@@ -155,7 +168,10 @@ C_EquipmentSet = {
             snapshot[slot] = ignoredForSave[slot] or false
         end
         sets[id].ignored = snapshot
-        sets[id].itemIDs = { [16] = equippedMainHandID }
+        sets[id].itemIDs = {
+            [16] = equippedMainHandID,
+            [17] = equippedOffHandID or 0,
+        }
         saveCounts[id] = (saveCounts[id] or 0) + 1
         if overwriteOnceID == id and saveCounts[id] == 1 then
             scheduled[#scheduled + 1] = function()
@@ -213,13 +229,14 @@ assert(hiddenCount == 0)
 assert(addon:CreateWeaponSet("DW") == false, "duplicate set names should be rejected")
 assert(addon:CreateWeaponSet("dw") == false, "duplicate names should be case-insensitive")
 
-sets[1] = { name = "Raid Gear", icon = 1, ignored = {}, itemIDs = { [16] = 100 } }
+sets[1] = { name = "Raid Gear", icon = 1, ignored = {}, itemIDs = { [16] = 100, [17] = 101 } }
 nextSetID = 2
 weaponSets, hiddenCount = addon:GetWeaponSets()
 assert(#weaponSets == 1, "full-gear sets should be hidden")
 assert(hiddenCount == 1, "full-gear sets should be counted")
 
 equippedMainHandID = 200
+equippedOffHandID = nil
 assert(addon:CreateWeaponSet("2H") == true)
 overwriteOnceID = 2
 inCombat = true
@@ -263,11 +280,25 @@ local weaponMask = {}
 for slot = 1, 19 do
     weaponMask[slot] = slot ~= 16 and slot ~= 17
 end
-sets[3] = { name = "DW Alt", icon = 1, ignored = weaponMask, itemIDs = { [16] = 100 } }
-sets[4] = { name = "2H Alt", icon = 1, ignored = weaponMask, itemIDs = { [16] = 201 } }
+sets[3] = { name = "DW Alt", icon = 1, ignored = weaponMask, itemIDs = { [16] = 100, [17] = 101 } }
+sets[4] = { name = "2H Alt", icon = 1, ignored = weaponMask, itemIDs = { [16] = 201, [17] = 0 } }
 assert(addon:CreateToggleMacro(0, 3) == false, "two one-handed sets cannot auto-toggle")
 assert(addon:CreateToggleMacro(2, 4) == false, "two two-handed sets cannot auto-toggle")
 assert(#macros == 1, "same-shape sets should not create misleading macros")
+
+sets[5] = { name = "Shield", icon = 1, ignored = weaponMask, itemIDs = { [16] = 100, [17] = 300 } }
+assert(addon:CreateToggleMacro(0, 5) == true, "dual wield and shield sets should toggle")
+assert(#macros == 2)
+assert(macros[2].name == "WS DW-Shield")
+assert(macros[2].body == "/equipset [worn:shield] DW; Shield")
+
+sets[6] = { name = "Maces", icon = 1, ignored = weaponMask, itemIDs = { [16] = 110, [17] = 111 } }
+assert(addon:CreateToggleMacro(0, 6) == true, "distinct weapon subtypes should toggle")
+assert(#macros == 3)
+assert(macros[3].name == "WS Maces-DW")
+assert(macros[3].body == "/equipset [worn:One-Handed Axes] Maces; DW")
+assert(addon:CreateToggleMacro(6, 0) == true, "subtype selector order should not matter")
+assert(#macros == 3, "reversing subtype selectors should not duplicate the macro")
 
 addon:DeleteWeaponSet(0)
 assert(sets[0] == nil, "weapon set should be deleted")

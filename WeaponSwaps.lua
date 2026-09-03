@@ -64,24 +64,48 @@ local function IsWeaponOnlySet(setID)
     return true
 end
 
-local function ItemUsesTwoHands(item)
+local function GetItemEquipLocation(item)
     if not item then
         return nil
     end
 
-    local equipLocation
     if GetItemInfoInstant then
-        equipLocation = select(4, GetItemInfoInstant(item))
+        return select(4, GetItemInfoInstant(item))
     elseif C_Item and C_Item.GetItemInfoInstant then
-        equipLocation = select(4, C_Item.GetItemInfoInstant(item))
+        return select(4, C_Item.GetItemInfoInstant(item))
     elseif GetItemInfo then
-        equipLocation = select(9, GetItemInfo(item))
+        return select(9, GetItemInfo(item))
+    end
+end
+
+local function GetItemSubtype(item)
+    if not item then
+        return nil
     end
 
+    if GetItemInfoInstant then
+        return select(3, GetItemInfoInstant(item))
+    elseif C_Item and C_Item.GetItemInfoInstant then
+        return select(3, C_Item.GetItemInfoInstant(item))
+    elseif GetItemInfo then
+        return select(7, GetItemInfo(item))
+    end
+end
+
+local function ItemUsesTwoHands(item)
+    local equipLocation = GetItemEquipLocation(item)
     if not equipLocation or equipLocation == "" then
         return nil
     end
     return equipLocation == "INVTYPE_2HWEAPON"
+end
+
+local function ItemIsShield(item)
+    local equipLocation = GetItemEquipLocation(item)
+    if not equipLocation or equipLocation == "" then
+        return nil
+    end
+    return equipLocation == "INVTYPE_SHIELD"
 end
 
 local function GetCharacterStorageKey()
@@ -97,8 +121,8 @@ local function GetCharacterStorageKey()
     return realm .. "-" .. name
 end
 
-function addon:StoreSetWeaponType(setID, isTwoHanded)
-    if isTwoHanded == nil then
+function addon:StoreSetWeaponType(setID, isTwoHanded, hasShield, itemTypes)
+    if isTwoHanded == nil and hasShield == nil and not itemTypes then
         return
     end
 
@@ -110,7 +134,52 @@ function addon:StoreSetWeaponType(setID, isTwoHanded)
     WeaponSwapsDB.setTypes[characterKey][setID] = {
         name = set and set.name,
         isTwoHanded = isTwoHanded,
+        hasShield = hasShield,
+        itemTypes = itemTypes,
     }
+end
+
+local function GetSetItemIDs(setID)
+    local api = GetAPI()
+    if not api or not api.GetItemIDs then
+        return nil
+    end
+
+    local ok, itemIDs = pcall(api.GetItemIDs, setID)
+    return ok and itemIDs or nil
+end
+
+local function GetSetItemFromLocation(setID, slot)
+    local api = GetAPI()
+    if not api or not api.GetItemLocations or not EquipmentManager_GetItemInfoByLocation then
+        return nil, false
+    end
+
+    local ok, locations = pcall(api.GetItemLocations, setID)
+    local location = ok and locations and locations[slot]
+    if location == 0 then
+        return nil, true
+    end
+    if not location or location <= 1 then
+        return nil, false
+    end
+
+    local itemOK, item = pcall(EquipmentManager_GetItemInfoByLocation, location)
+    return itemOK and item or nil, itemOK and item ~= nil
+end
+
+local function GetSetSlotItem(setID, slot)
+    local itemIDs = GetSetItemIDs(setID)
+    if itemIDs then
+        local itemID = itemIDs[slot]
+        if itemID == 0 then
+            return nil, true
+        elseif itemID and itemID > 1 then
+            return itemID, true
+        end
+    end
+
+    return GetSetItemFromLocation(setID, slot)
 end
 
 function addon:ClearStoredSetWeaponType(setID)
@@ -128,27 +197,14 @@ function addon:GetSetUsesTwoHands(setID)
         return nil
     end
 
-    if api.GetItemIDs then
-        local ok, itemIDs = pcall(api.GetItemIDs, setID)
-        if ok and itemIDs then
-            local result = ItemUsesTwoHands(itemIDs[MAIN_HAND_SLOT])
-            if result ~= nil then
-                return result
-            end
+    local item, locationKnown = GetSetSlotItem(setID, MAIN_HAND_SLOT)
+    if locationKnown then
+        if not item then
+            return false
         end
-    end
-
-    if api.GetItemLocations and EquipmentManager_GetItemInfoByLocation then
-        local ok, locations = pcall(api.GetItemLocations, setID)
-        local location = ok and locations and locations[MAIN_HAND_SLOT]
-        if location and location > 1 then
-            local itemOK, item = pcall(EquipmentManager_GetItemInfoByLocation, location)
-            if itemOK then
-                local result = ItemUsesTwoHands(item)
-                if result ~= nil then
-                    return result
-                end
-            end
+        local result = ItemUsesTwoHands(item)
+        if result ~= nil then
+            return result
         end
     end
 
@@ -164,11 +220,100 @@ function addon:GetSetUsesTwoHands(setID)
     return nil
 end
 
+function addon:GetSetUsesShield(setID)
+    local item, locationKnown = GetSetSlotItem(setID, OFF_HAND_SLOT)
+    if locationKnown then
+        if not item then
+            return false
+        end
+        local result = ItemIsShield(item)
+        if result ~= nil then
+            return result
+        end
+    end
+
+    local set = GetSetInfo(setID)
+    local setTypes = WeaponSwapsDB
+        and WeaponSwapsDB.setTypes
+        and WeaponSwapsDB.setTypes[GetCharacterStorageKey()]
+    local stored = setTypes and setTypes[setID]
+    if stored and set and stored.name == set.name then
+        return stored.hasShield
+    end
+
+    return nil
+end
+
+function addon:GetSetWeaponTypes(setID)
+    local types = {}
+    local allLocationsKnown = true
+
+    for _, slot in ipairs({ MAIN_HAND_SLOT, OFF_HAND_SLOT }) do
+        local item, locationKnown = GetSetSlotItem(setID, slot)
+        if not locationKnown then
+            allLocationsKnown = false
+        elseif item then
+            local itemSubtype = GetItemSubtype(item)
+            if not itemSubtype or itemSubtype == "" then
+                allLocationsKnown = false
+            else
+                types[itemSubtype] = true
+            end
+        end
+    end
+
+    if allLocationsKnown then
+        return types
+    end
+
+    local set = GetSetInfo(setID)
+    local setTypes = WeaponSwapsDB
+        and WeaponSwapsDB.setTypes
+        and WeaponSwapsDB.setTypes[GetCharacterStorageKey()]
+    local stored = setTypes and setTypes[setID]
+    if stored and set and stored.name == set.name then
+        return stored.itemTypes
+    end
+
+    return nil
+end
+
 local function CurrentMainHandUsesTwoHands()
     if not GetInventoryItemID then
         return nil
     end
     return ItemUsesTwoHands(GetInventoryItemID("player", MAIN_HAND_SLOT))
+end
+
+local function CurrentOffHandIsShield()
+    if not GetInventoryItemID then
+        return nil
+    end
+
+    local itemID = GetInventoryItemID("player", OFF_HAND_SLOT)
+    if not itemID then
+        return false
+    end
+    return ItemIsShield(itemID)
+end
+
+local function CurrentWeaponTypes()
+    if not GetInventoryItemID then
+        return nil
+    end
+
+    local types = {}
+    for _, slot in ipairs({ MAIN_HAND_SLOT, OFF_HAND_SLOT }) do
+        local itemID = GetInventoryItemID("player", slot)
+        if itemID then
+            local itemSubtype = GetItemSubtype(itemID)
+            if not itemSubtype or itemSubtype == "" then
+                return nil
+            end
+            types[itemSubtype] = true
+        end
+    end
+    return types
 end
 
 function addon:GetAllSets()
@@ -285,7 +430,12 @@ function addon:SaveWeaponSet(setID)
     end
 
     if self:ApplyWeaponOnlySave(setID) then
-        self:StoreSetWeaponType(setID, CurrentMainHandUsesTwoHands())
+        self:StoreSetWeaponType(
+            setID,
+            CurrentMainHandUsesTwoHands(),
+            CurrentOffHandIsShield(),
+            CurrentWeaponTypes()
+        )
         Print(string.format("Saved the currently equipped weapons to |cffffffff%s|r.", set.name))
         self:RefreshUI()
     end
@@ -404,7 +554,12 @@ function addon:FinishPendingCreate()
             pending.stableChecks = pending.stableChecks + 1
             if pending.stableChecks >= 2 then
                 local set = GetSetInfo(pending.setID)
-                self:StoreSetWeaponType(pending.setID, pending.isTwoHanded)
+                self:StoreSetWeaponType(
+                    pending.setID,
+                    pending.isTwoHanded,
+                    pending.hasShield,
+                    pending.itemTypes
+                )
                 self.pendingCreate = nil
                 Print(string.format("Created and verified weapon set |cffffffff%s|r.", set and set.name or pending.name))
                 self:RefreshUI()
@@ -462,6 +617,8 @@ function addon:CreateWeaponSet(rawName)
         saveAttempts = 0,
         stableChecks = 0,
         isTwoHanded = CurrentMainHandUsesTwoHands(),
+        hasShield = CurrentOffHandIsShield(),
+        itemTypes = CurrentWeaponTypes(),
     }
 
     local ok, errorMessage = pcall(api.CreateEquipmentSet, name, icon)
@@ -504,6 +661,49 @@ local function IsMacroSafeSetName(name)
         and string.sub(name, 1, 1) ~= "["
 end
 
+local function IsMacroSafeItemType(itemType)
+    return itemType
+        and itemType ~= ""
+        and not string.find(itemType, "[%[%];,\r\n]")
+end
+
+local function FindDistinctItemType(firstSet, firstTypes, secondSet, secondTypes)
+    if not firstTypes or not secondTypes then
+        return nil
+    end
+
+    local candidates = {}
+    for itemType in pairs(firstTypes) do
+        if not secondTypes[itemType] and IsMacroSafeItemType(itemType) then
+            candidates[#candidates + 1] = {
+                itemType = itemType,
+                conditionSet = firstSet,
+                otherSet = secondSet,
+            }
+        end
+    end
+    for itemType in pairs(secondTypes) do
+        if not firstTypes[itemType] and IsMacroSafeItemType(itemType) then
+            candidates[#candidates + 1] = {
+                itemType = itemType,
+                conditionSet = secondSet,
+                otherSet = firstSet,
+            }
+        end
+    end
+
+    table.sort(candidates, function(left, right)
+        local leftType = string.lower(left.itemType)
+        local rightType = string.lower(right.itemType)
+        if leftType == rightType then
+            return string.lower(left.conditionSet.name) < string.lower(right.conditionSet.name)
+        end
+        return leftType < rightType
+    end)
+
+    return candidates[1]
+end
+
 local function MakeMacroName(firstName, secondName, suffix)
     local suffixText = suffix and tostring(suffix) or ""
     local available = 16 - #suffixText
@@ -541,21 +741,51 @@ function addon:CreateToggleMacro(firstSetID, secondSetID)
 
     local firstUsesTwoHands = self:GetSetUsesTwoHands(firstSetID)
     local secondUsesTwoHands = self:GetSetUsesTwoHands(secondSetID)
-    if firstUsesTwoHands == nil or secondUsesTwoHands == nil then
-        Print("Unable to determine one set's weapon type. Equip that set and click Save, then try again.")
-        return false
+    local condition
+    local conditionSet
+    local otherSet
+
+    if firstUsesTwoHands ~= nil
+        and secondUsesTwoHands ~= nil
+        and firstUsesTwoHands ~= secondUsesTwoHands then
+        condition = "two-hand"
+        conditionSet = firstUsesTwoHands and firstSet or secondSet
+        otherSet = firstUsesTwoHands and secondSet or firstSet
+    else
+        local firstUsesShield = self:GetSetUsesShield(firstSetID)
+        local secondUsesShield = self:GetSetUsesShield(secondSetID)
+        if firstUsesShield ~= nil
+            and secondUsesShield ~= nil
+            and firstUsesShield ~= secondUsesShield then
+            condition = "shield"
+            conditionSet = firstUsesShield and firstSet or secondSet
+            otherSet = firstUsesShield and secondSet or firstSet
+        else
+            local distinctType = FindDistinctItemType(
+                firstSet,
+                self:GetSetWeaponTypes(firstSetID),
+                secondSet,
+                self:GetSetWeaponTypes(secondSetID)
+            )
+            if distinctType then
+                condition = distinctType.itemType
+                conditionSet = distinctType.conditionSet
+                otherSet = distinctType.otherSet
+            elseif firstUsesTwoHands == nil
+                or secondUsesTwoHands == nil
+                or firstUsesShield == nil
+                or secondUsesShield == nil then
+                Print("Unable to determine one set's weapon layout. Equip that set and click Save, then try again.")
+                return false
+            else
+                Print("The selected sets share the same weapon item types, so an automatic toggle cannot distinguish them. Use their Equip buttons instead.")
+                return false
+            end
+        end
     end
 
-    if firstUsesTwoHands == secondUsesTwoHands then
-        local layout = firstUsesTwoHands and "two-handed" or "one-handed"
-        Print(string.format("Both sets use %s weapons, so [worn:two-hand] cannot distinguish them. Use their Equip buttons instead.", layout))
-        return false
-    end
-
-    local twoHandedSet = firstUsesTwoHands and firstSet or secondSet
-    local otherSet = firstUsesTwoHands and secondSet or firstSet
-    local body = string.format("/equipset [worn:two-hand] %s; %s", otherSet.name, twoHandedSet.name)
-    local macroName = MakeMacroName(otherSet.name, twoHandedSet.name)
+    local body = string.format("/equipset [worn:%s] %s; %s", condition, otherSet.name, conditionSet.name)
+    local macroName = MakeMacroName(otherSet.name, conditionSet.name)
     local existingIndex = GetMacroIndexByName(macroName)
 
     if existingIndex and existingIndex > 0 then
@@ -567,7 +797,7 @@ function addon:CreateToggleMacro(firstSetID, secondSetID)
 
         local foundAvailableName = false
         for suffix = 2, 99 do
-            local candidate = MakeMacroName(otherSet.name, twoHandedSet.name, suffix)
+            local candidate = MakeMacroName(otherSet.name, conditionSet.name, suffix)
             if GetMacroIndexByName(candidate) == 0 then
                 macroName = candidate
                 foundAvailableName = true
