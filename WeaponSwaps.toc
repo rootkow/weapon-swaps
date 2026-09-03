@@ -1,8 +1,8 @@
-## Interface: 20505
+## Interface: 20506
 ## Title: Weapon Swaps
 ## Notes: Reliable weapon swapping with native equipment sets.
 ## Author: rootkow
-## Version: 1.1.1
+## Version: @project-version@
 ## SavedVariables: WeaponSwapsDB
 
 WeaponSwaps.lua
