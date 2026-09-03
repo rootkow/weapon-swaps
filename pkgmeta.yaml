@@ -2,5 +2,6 @@ package-as: WeaponSwaps
 
 ignore:
   - README.md
+  - assets/WeaponSwapLogo.png
   - tbc_anniversary_equipment_sets_addon_findings.md
   - tests
