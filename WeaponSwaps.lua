@@ -318,6 +318,13 @@ local function CurrentWeaponTypes()
     return types
 end
 
+local function IsMacroSafeSetName(name)
+    return name
+        and name ~= ""
+        and not string.find(name, "[;\r\n]")
+        and string.sub(name, 1, 1) ~= "["
+end
+
 function addon:GetAllSets()
     local api = GetAPI()
     local sets = {}
@@ -599,6 +606,11 @@ function addon:CreateWeaponSet(rawName)
         return false
     end
 
+    if not IsMacroSafeSetName(name) then
+        Print("Set names cannot start with '[' or contain semicolons or line breaks.")
+        return false
+    end
+
     if self:FindSetByName(name) then
         Print(string.format("An equipment set named |cffffffff%s|r already exists.", name))
         return false
@@ -654,13 +666,6 @@ function addon:DeleteWeaponSet(setID)
     self:ClearStoredSetWeaponType(setID)
     Print(string.format("Deleted weapon set |cffffffff%s|r.", set.name))
     self:RefreshUI()
-end
-
-local function IsMacroSafeSetName(name)
-    return name
-        and name ~= ""
-        and not string.find(name, "[;\r\n]")
-        and string.sub(name, 1, 1) ~= "["
 end
 
 local function IsMacroSafeItemType(itemType)
@@ -937,7 +942,11 @@ local function CreateSetRow(index)
     equipButton:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:SetText(self.setName or "")
-        GameTooltip:AddLine("Click to equip. This secure button works in combat.", 1, 1, 1, true)
+        if self.secureEquipAvailable then
+            GameTooltip:AddLine("Click to equip. This secure button works in combat.", 1, 1, 1, true)
+        else
+            GameTooltip:AddLine("Click to equip out of combat. Rename this set for combat use.", 1, 0.82, 0, true)
+        end
         GameTooltip:Show()
     end)
     equipButton:SetScript("OnLeave", GameTooltip_Hide)
@@ -1113,8 +1122,14 @@ function addon:RefreshUI()
         row.deleteButton.setID = set.id
         row.deleteButton.setName = set.name
 
-        row.equipButton:SetAttribute("type1", "macro")
-        row.equipButton:SetAttribute("macrotext1", "/equipset [combat] " .. set.name)
+        row.equipButton.secureEquipAvailable = IsMacroSafeSetName(set.name)
+        if row.equipButton.secureEquipAvailable then
+            row.equipButton:SetAttribute("type1", "macro")
+            row.equipButton:SetAttribute("macrotext1", "/equipset [combat] " .. set.name)
+        else
+            row.equipButton:SetAttribute("type1", nil)
+            row.equipButton:SetAttribute("macrotext1", nil)
+        end
 
         row.saveButton:SetEnabled(true)
         row.deleteButton:SetEnabled(true)

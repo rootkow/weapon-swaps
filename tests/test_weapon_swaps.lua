@@ -234,6 +234,11 @@ assert(#weaponSets == 1 and weaponSets[1].name == "DW")
 assert(hiddenCount == 0)
 assert(addon:CreateWeaponSet("DW") == false, "duplicate set names should be rejected")
 assert(addon:CreateWeaponSet("dw") == false, "duplicate names should be case-insensitive")
+local nextSetIDBeforeUnsafeNames = nextSetID
+assert(addon:CreateWeaponSet("Bad;Name") == false, "semicolons should be rejected")
+assert(addon:CreateWeaponSet("Bad\nName") == false, "line breaks should be rejected")
+assert(addon:CreateWeaponSet("[combat] Bad") == false, "leading macro conditions should be rejected")
+assert(nextSetID == nextSetIDBeforeUnsafeNames, "unsafe names should not reach the native create API")
 
 sets[1] = { name = "Raid Gear", icon = 1, ignored = {}, itemIDs = { [16] = 100, [17] = 101 } }
 nextSetID = 2
@@ -314,6 +319,22 @@ sets[8] = { name = "MaceDagger", icon = 1, ignored = weaponMask, itemIDs = { [16
 assert(addon:CreateToggleMacro(7, 8) == true, "the preferred unique subtype should distinguish mixed sets")
 assert(#macros == 4)
 assert(macros[4].body == "/equipset [equipped:Daggers] MaceAxe; MaceDagger")
+
+sets[9] = { name = "[Unsafe]", icon = 1, ignored = weaponMask, itemIDs = { [16] = 100, [17] = 101 } }
+addon:RefreshUI()
+local unsafeEquipButton
+for index = 1, 9 do
+    local button = _G["WeaponSwapsEquipButton" .. index]
+    if button and button.setID == 9 then
+        unsafeEquipButton = button
+        break
+    end
+end
+assert(unsafeEquipButton, "externally created unsafe sets should still appear")
+assert(unsafeEquipButton.attributes.type1 == nil, "unsafe sets must not receive a secure macro action")
+assert(unsafeEquipButton.attributes.macrotext1 == nil, "unsafe set names must not be interpolated into macrotext")
+unsafeEquipButton.scripts.PostClick(unsafeEquipButton)
+assert(equippedSetID == 9, "unsafe-name sets should still equip by ID out of combat")
 
 addon:DeleteWeaponSet(0)
 assert(sets[0] == nil, "weapon set should be deleted")
