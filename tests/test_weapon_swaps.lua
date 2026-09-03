@@ -88,8 +88,14 @@ GetItemInfoInstant = function(itemID)
         return itemID, "Armor", "Shields", "INVTYPE_SHIELD"
     elseif itemID == 110 or itemID == 111 then
         return itemID, "Weapon", "One-Handed Maces", "INVTYPE_WEAPON"
+    elseif itemID == 120 then
+        return itemID, "Weapon", "Daggers", "INVTYPE_WEAPON"
     end
     return itemID, "Weapon", "One-Handed Axes", "INVTYPE_WEAPON"
+end
+GetItemInfo = function(itemID)
+    local _, itemType, itemSubtype, equipLocation = GetItemInfoInstant(itemID)
+    return "Item " .. itemID, "item:" .. itemID, 4, 70, 70, itemType, itemSubtype, 1, equipLocation
 end
 InCombatLockdown = function() return inCombat end
 GetMacroIndexByName = function(name)
@@ -268,7 +274,7 @@ assert(WeaponSwapsSecondSetDropdown.dropdownText == "2H")
 assert(addon:CreateToggleMacro(0, 2) == true)
 assert(#macros == 1)
 assert(macros[1].name == "WS DW-2H")
-assert(macros[1].body == "/equipset [worn:two-hand] DW; 2H")
+assert(macros[1].body == "/equipset [equipped:Two-Hand] DW; 2H")
 assert(macros[1].perCharacter == true)
 assert(addon:CreateToggleMacro(0, 2) == true, "creating the same toggle should be idempotent")
 assert(#macros == 1, "an identical macro should not be duplicated")
@@ -280,9 +286,12 @@ local weaponMask = {}
 for slot = 1, 19 do
     weaponMask[slot] = slot ~= 16 and slot ~= 17
 end
-sets[3] = { name = "DW Alt", icon = 1, ignored = weaponMask, itemIDs = { [16] = 100, [17] = 101 } }
+sets[3] = { name = "DW Alt", icon = 1, ignored = weaponMask, itemIDs = { [16] = 102, [17] = 103 } }
 sets[4] = { name = "2H Alt", icon = 1, ignored = weaponMask, itemIDs = { [16] = 201, [17] = 0 } }
-assert(addon:CreateToggleMacro(0, 3) == false, "two one-handed sets cannot auto-toggle")
+local createdMacro, fallbackReason = addon:CreateToggleMacro(0, 3)
+assert(createdMacro == false, "two one-handed sets cannot auto-toggle")
+assert(fallbackReason == "requires-secure-toggle", "same-type sets should be marked for secure fallback")
+assert(string.find(messages[#messages], "No standard equipment%-type toggle condition"))
 assert(addon:CreateToggleMacro(2, 4) == false, "two two-handed sets cannot auto-toggle")
 assert(#macros == 1, "same-shape sets should not create misleading macros")
 
@@ -290,15 +299,21 @@ sets[5] = { name = "Shield", icon = 1, ignored = weaponMask, itemIDs = { [16] = 
 assert(addon:CreateToggleMacro(0, 5) == true, "dual wield and shield sets should toggle")
 assert(#macros == 2)
 assert(macros[2].name == "WS DW-Shield")
-assert(macros[2].body == "/equipset [worn:shield] DW; Shield")
+assert(macros[2].body == "/equipset [equipped:Shield] DW; Shield")
 
 sets[6] = { name = "Maces", icon = 1, ignored = weaponMask, itemIDs = { [16] = 110, [17] = 111 } }
 assert(addon:CreateToggleMacro(0, 6) == true, "distinct weapon subtypes should toggle")
 assert(#macros == 3)
 assert(macros[3].name == "WS Maces-DW")
-assert(macros[3].body == "/equipset [worn:One-Handed Axes] Maces; DW")
+assert(macros[3].body == "/equipset [equipped:One-Handed Axes] Maces; DW")
 assert(addon:CreateToggleMacro(6, 0) == true, "subtype selector order should not matter")
 assert(#macros == 3, "reversing subtype selectors should not duplicate the macro")
+
+sets[7] = { name = "MaceAxe", icon = 1, ignored = weaponMask, itemIDs = { [16] = 110, [17] = 100 } }
+sets[8] = { name = "MaceDagger", icon = 1, ignored = weaponMask, itemIDs = { [16] = 111, [17] = 120 } }
+assert(addon:CreateToggleMacro(7, 8) == true, "the preferred unique subtype should distinguish mixed sets")
+assert(#macros == 4)
+assert(macros[4].body == "/equipset [equipped:Daggers] MaceAxe; MaceDagger")
 
 addon:DeleteWeaponSet(0)
 assert(sets[0] == nil, "weapon set should be deleted")

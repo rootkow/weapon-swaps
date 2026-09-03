@@ -64,32 +64,34 @@ local function IsWeaponOnlySet(setID)
     return true
 end
 
-local function GetItemEquipLocation(item)
+local function GetItemDetails(item)
     if not item then
-        return nil
+        return nil, nil
+    end
+
+    if GetItemInfo then
+        local _, _, _, _, _, _, itemSubtype, _, equipLocation = GetItemInfo(item)
+        if itemSubtype or equipLocation then
+            return itemSubtype, equipLocation
+        end
     end
 
     if GetItemInfoInstant then
-        return select(4, GetItemInfoInstant(item))
+        local _, _, itemSubtype, equipLocation = GetItemInfoInstant(item)
+        return itemSubtype, equipLocation
     elseif C_Item and C_Item.GetItemInfoInstant then
-        return select(4, C_Item.GetItemInfoInstant(item))
-    elseif GetItemInfo then
-        return select(9, GetItemInfo(item))
+        local _, _, itemSubtype, equipLocation = C_Item.GetItemInfoInstant(item)
+        return itemSubtype, equipLocation
     end
 end
 
-local function GetItemSubtype(item)
-    if not item then
-        return nil
-    end
+local function GetItemEquipLocation(item)
+    local _, equipLocation = GetItemDetails(item)
+    return equipLocation
+end
 
-    if GetItemInfoInstant then
-        return select(3, GetItemInfoInstant(item))
-    elseif C_Item and C_Item.GetItemInfoInstant then
-        return select(3, C_Item.GetItemInfoInstant(item))
-    elseif GetItemInfo then
-        return select(7, GetItemInfo(item))
-    end
+local function GetItemSubtype(item)
+    return GetItemDetails(item)
 end
 
 local function ItemUsesTwoHands(item)
@@ -667,6 +669,18 @@ local function IsMacroSafeItemType(itemType)
         and not string.find(itemType, "[%[%];,\r\n]")
 end
 
+local ITEM_TYPE_PRIORITY = {
+    ["Daggers"] = 1,
+    ["Fist Weapons"] = 2,
+    ["One-Handed Axes"] = 3,
+    ["One-Handed Maces"] = 4,
+    ["One-Handed Swords"] = 5,
+}
+
+local function GetItemTypePriority(itemType)
+    return ITEM_TYPE_PRIORITY[itemType] or 100
+end
+
 local function FindDistinctItemType(firstSet, firstTypes, secondSet, secondTypes)
     if not firstTypes or not secondTypes then
         return nil
@@ -693,6 +707,12 @@ local function FindDistinctItemType(firstSet, firstTypes, secondSet, secondTypes
     end
 
     table.sort(candidates, function(left, right)
+        local leftPriority = GetItemTypePriority(left.itemType)
+        local rightPriority = GetItemTypePriority(right.itemType)
+        if leftPriority ~= rightPriority then
+            return leftPriority < rightPriority
+        end
+
         local leftType = string.lower(left.itemType)
         local rightType = string.lower(right.itemType)
         if leftType == rightType then
@@ -748,7 +768,7 @@ function addon:CreateToggleMacro(firstSetID, secondSetID)
     if firstUsesTwoHands ~= nil
         and secondUsesTwoHands ~= nil
         and firstUsesTwoHands ~= secondUsesTwoHands then
-        condition = "two-hand"
+        condition = "Two-Hand"
         conditionSet = firstUsesTwoHands and firstSet or secondSet
         otherSet = firstUsesTwoHands and secondSet or firstSet
     else
@@ -757,7 +777,7 @@ function addon:CreateToggleMacro(firstSetID, secondSetID)
         if firstUsesShield ~= nil
             and secondUsesShield ~= nil
             and firstUsesShield ~= secondUsesShield then
-            condition = "shield"
+            condition = "Shield"
             conditionSet = firstUsesShield and firstSet or secondSet
             otherSet = firstUsesShield and secondSet or firstSet
         else
@@ -778,13 +798,13 @@ function addon:CreateToggleMacro(firstSetID, secondSetID)
                 Print("Unable to determine one set's weapon layout. Equip that set and click Save, then try again.")
                 return false
             else
-                Print("The selected sets share the same weapon item types, so an automatic toggle cannot distinguish them. Use their Equip buttons instead.")
-                return false
+                Print("No standard equipment-type toggle condition is available for these sets. A secure-toggle fallback is required.")
+                return false, "requires-secure-toggle"
             end
         end
     end
 
-    local body = string.format("/equipset [worn:%s] %s; %s", condition, otherSet.name, conditionSet.name)
+    local body = string.format("/equipset [equipped:%s] %s; %s", condition, otherSet.name, conditionSet.name)
     local macroName = MakeMacroName(otherSet.name, conditionSet.name)
     local existingIndex = GetMacroIndexByName(macroName)
 
