@@ -30,6 +30,8 @@ The addon targets TBC Anniversary interface version `20505`.
 4. Wait for the `Created and verified weapon set` chat message. Native creation takes about two seconds because the addon verifies that the weapon-only mask persists.
 5. Use the set's **Equip** button to equip it. Use **Save** after changing weapons to overwrite that set.
 
+Keep the selected weapons equipped until creation is verified. If either weapon slot changes while creation is pending, Weapon Swaps removes the incomplete set and asks you to try again instead of saving the wrong weapons.
+
 Creating, saving, deleting, opening, and closing the manager is disabled during combat. If the manager was already open, its set buttons remain usable. A normal `/equipset` action-bar macro remains the most convenient way to swap at any time.
 
 Weapon Swaps deliberately hides normal full-gear equipment sets. It never converts or overwrites them.

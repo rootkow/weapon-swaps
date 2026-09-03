@@ -240,6 +240,17 @@ assert(addon:CreateWeaponSet("Bad\nName") == false, "line breaks should be rejec
 assert(addon:CreateWeaponSet("[combat] Bad") == false, "leading macro conditions should be rejected")
 assert(nextSetID == nextSetIDBeforeUnsafeNames, "unsafe names should not reach the native create API")
 
+equippedMainHandID = 110
+equippedOffHandID = 111
+assert(addon:CreateWeaponSet("Interrupted") == true)
+equippedMainHandID = 120
+equippedOffHandID = 100
+RunUntilCreateFinishes()
+assert(sets[1] == nil, "a weapon change should remove the incomplete set instead of saving different weapons")
+assert(string.find(messages[#messages - 1], "equipped weapons changed"))
+equippedMainHandID = 100
+equippedOffHandID = 101
+
 sets[1] = { name = "Raid Gear", icon = 1, ignored = {}, itemIDs = { [16] = 100, [17] = 101 } }
 nextSetID = 2
 weaponSets, hiddenCount = addon:GetWeaponSets()
@@ -319,6 +330,14 @@ sets[8] = { name = "MaceDagger", icon = 1, ignored = weaponMask, itemIDs = { [16
 assert(addon:CreateToggleMacro(7, 8) == true, "the preferred unique subtype should distinguish mixed sets")
 assert(#macros == 4)
 assert(macros[4].body == "/equipset [equipped:Daggers] MaceAxe; MaceDagger")
+
+macros[1].body = "/say unrelated"
+local macroCountBeforeCollisionRetry = #macros
+assert(addon:CreateToggleMacro(0, 2) == true, "a conflicting base name should use a suffix")
+assert(#macros == macroCountBeforeCollisionRetry + 1)
+assert(macros[#macros].name == "WS DW-2H2")
+assert(addon:CreateToggleMacro(0, 2) == true, "a suffixed toggle macro should be found on retry")
+assert(#macros == macroCountBeforeCollisionRetry + 1, "retrying a suffixed macro should not create another duplicate")
 
 sets[9] = { name = "[Unsafe]", icon = 1, ignored = weaponMask, itemIDs = { [16] = 100, [17] = 101 } }
 addon:RefreshUI()
